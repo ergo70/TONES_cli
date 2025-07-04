@@ -9,7 +9,6 @@ from time import sleep
 from http import HTTPStatus
 from base64 import b64decode
 from json import loads
-from Crypto.Cipher import AES
 from argparse import ArgumentParser
 
 __author__ = """Ernst-Georg Schmid"""
@@ -32,7 +31,7 @@ HTTP_TIMEOUT = 1
 BACKOFF = 10
 
 
-def submit() -> tuple:
+def submit() -> str:
     """Submit the image to the TONES API for analysis."""
     querystring = {"""include_gender""": f"""{arguments.gender}""".lower(),
                    """include_age""": f"""{arguments.age}""".lower()}
@@ -51,11 +50,10 @@ def submit() -> tuple:
             LOGGER.error("""No ID returned from TONES API.""")
         else:
             LOGGER.info(f"""Image submitted for analysis with ID: %s""", id)
-            k = data.get("""k""")
-            return id, b64decode(k)
+            return id
 
 
-def poll(id: str, key: str):
+def poll(id: str):
     """Poll the TONES API for the analysis result."""
     data = None
     for backoff in range(1, BACKOFF+1):
@@ -70,23 +68,17 @@ def poll(id: str, key: str):
             LOGGER.error(f"""Analysis ID %s not found.""", id)
             return
         data = response.json()
-        c = data.get("""prediction""")
-        n = data.get("""n""")
+
         ttl = data.get("""ttl""")
         LOGGER.info(f"""Analysis completed, ID: %s, TTL: %s seconds""", id, ttl)
         break
 
     if data:
-        nonce = b64decode(n)
-        ciphertext = b64decode(c)
-        cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
-        plaintext = cipher.decrypt(ciphertext).decode("""utf-8""")
-
-        if "error" in plaintext:
-            LOGGER.error(f"""Error returned from TONES API: %s""", plaintext)
+        if "error" in str(data):
+            LOGGER.error(f"""Error returned from TONES API: %s""", data)
             return
         else:
-            payload = loads(plaintext)
+            payload = data
 
         timing = payload.get("""timing""")
         faces_detected = payload.get("""faces_detected""")
@@ -116,7 +108,7 @@ def poll(id: str, key: str):
         print(f"""TTL: {ttl} seconds""")
     elif backoff == BACKOFF:
         LOGGER.error(
-            f"""Failed to retrieve analysis result after %s attempts.""", BACKOFF)
+            """Failed to retrieve analysis result after %s attempts.""", BACKOFF)
 
 
 def budget():
@@ -151,6 +143,6 @@ if __name__ == """__main__""":
     BASE_URL = arguments.url.rstrip('/') + """/api/v1/{}"""
     headers = {"""authorization""": f"""Bearer {arguments.api_key}"""}
     session = requests.Session()
-    id, key = submit()
-    poll(id, key)
+    id = submit()
+    poll(id)
     budget()
